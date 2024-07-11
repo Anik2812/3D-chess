@@ -1,8 +1,13 @@
 const board = document.getElementById('board');
 const movesList = document.getElementById('moves');
+const turnIndicator = document.getElementById('turnIndicator');
+const whiteCaptured = document.getElementById('whiteCaptured');
+const blackCaptured = document.getElementById('blackCaptured');
 let selectedPiece = null;
 let rotationX = 45;
 let rotationY = 0;
+let currentTurn = 'white';
+let moveHistory = [];
 
 function createBoard() {
     for (let i = 0; i < 64; i++) {
@@ -20,18 +25,55 @@ function createPiece(type, color, position) {
     piece.classList.add('piece');
     piece.textContent = type;
     piece.style.color = color;
+    piece.dataset.color = color;
     piece.style.transform = `translate3d(${(position % 8) * 12.5}%, ${Math.floor(position / 8) * 12.5}%, 5px)`;
-    piece.addEventListener('click', () => selectPiece(piece));
+    piece.addEventListener('click', (e) => selectPiece(piece, e));
     board.appendChild(piece);
     return piece;
 }
 
-function selectPiece(piece) {
+function selectPiece(piece, event) {
+    event.stopPropagation();
+    if (piece.dataset.color !== currentTurn) return;
+
     if (selectedPiece) {
         selectedPiece.style.boxShadow = '';
+        clearValidMoves();
     }
     selectedPiece = piece;
     piece.style.boxShadow = '0 0 10px #fff';
+    showValidMoves(piece);
+}
+
+function showValidMoves(piece) {
+    const position = getPosition(piece);
+    const validMoves = getValidMoves(piece, position);
+    validMoves.forEach(move => {
+        const square = board.children[move];
+        square.classList.add('validMove');
+    });
+}
+
+function clearValidMoves() {
+    document.querySelectorAll('.validMove').forEach(square => {
+        square.classList.remove('validMove');
+    });
+}
+
+function getPosition(piece) {
+    const transform = piece.style.transform;
+    const x = parseInt(transform.split('(')[1].split('%')[0]) / 12.5;
+    const y = parseInt(transform.split(',')[1].split('%')[0]) / 12.5;
+    return y * 8 + x;
+}
+
+function getValidMoves(piece, position) {
+    // This is a simplified version. You should implement proper chess rules here.
+    const validMoves = [];
+    for (let i = 0; i < 64; i++) {
+        if (i !== position) validMoves.push(i);
+    }
+    return validMoves;
 }
 
 function handleSquareClick(position) {
@@ -41,17 +83,23 @@ function handleSquareClick(position) {
 }
 
 function movePiece(piece, position) {
+    const oldPosition = getPosition(piece);
+    const capturedPiece = board.querySelector(`.piece[style*="translate3d(${(position % 8) * 12.5}%, ${Math.floor(position / 8) * 12.5}%"]`);
+    
+    if (capturedPiece) {
+        capturePiece(capturedPiece);
+    }
+
     piece.style.transform = `translate3d(${(position % 8) * 12.5}%, ${Math.floor(position / 8) * 12.5}%, 5px)`;
     selectedPiece.style.boxShadow = '';
     selectedPiece = null;
-    addMoveToHistory(piece.textContent, position);
+    clearValidMoves();
+
+    addMoveToHistory(piece.textContent, oldPosition, position);
+    switchTurn();
+    checkForCheck();
 }
 
-function addMoveToHistory(piece, position) {
-    const move = document.createElement('li');
-    move.textContent = `${piece} to ${String.fromCharCode(97 + (position % 8))}${8 - Math.floor(position / 8)}`;
-    movesList.appendChild(move);
-}
 
 function updateBoardRotation() {
     board.style.transform = `rotateX(${rotationX}deg) rotateY(${rotationY}deg)`;
@@ -71,6 +119,16 @@ document.getElementById('resetView').addEventListener('click', () => {
     rotationX = 45;
     rotationY = 0;
     updateBoardRotation();
+});
+
+document.getElementById('undoMove').addEventListener('click', () => {
+    if (moveHistory.length > 0) {
+        const lastMove = moveHistory.pop();
+        const piece = board.querySelector(`.piece[style*="translate3d(${(lastMove.to % 8) * 12.5}%, ${Math.floor(lastMove.to / 8) * 12.5}%"]`);
+        piece.style.transform = `translate3d(${(lastMove.from % 8) * 12.5}%, ${Math.floor(lastMove.from / 8) * 12.5}%, 5px)`;
+        movesList.removeChild(movesList.lastChild);
+        switchTurn();
+    }
 });
 
 createBoard();
@@ -113,9 +171,3 @@ const pieces = [
 
 pieces.forEach(piece => createPiece(piece.type, piece.color, piece.position));
 
-// Add subtle board movement on mouse move
-document.addEventListener('mousemove', (e) => {
-    const subtleRotationX = (e.clientY / window.innerHeight - 0.5) * 5;
-    const subtleRotationY = (e.clientX / window.innerWidth - 0.5) * 5;
-    board.style.transform = `rotateX(${rotationX + subtleRotationX}deg) rotateY(${rotationY + subtleRotationY}deg)`;
-});
