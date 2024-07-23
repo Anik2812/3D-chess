@@ -11,7 +11,11 @@ const board = [];
 const pieces = [];
 let selectedPiece = null;
 let currentTurn = 'white';
+let gameMode = null; // 'solo' or 'multiplayer'
 const turnIndicator = document.getElementById('turn-indicator');
+const gameModeSelector = document.getElementById('game-mode-selector');
+const gameUI = document.getElementById('game-ui');
+const winnerDisplay = document.getElementById('winner-display');
 
 // Set up lighting
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -28,66 +32,42 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-// Set up sky background
-const skyTexture = textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/equirectangularmaps/tears_of_steel_bridge_2k.jpg');
-skyTexture.mapping = THREE.EquirectangularReflectionMapping;
-scene.background = skyTexture;
+// Set background color
+scene.background = new THREE.Color(0x2c3e50);
 
-// Create floating chessboard
-const boardTexture = textureLoader.load('Board.png');
+// Create floating checkerboard
+const boardTexture = textureLoader.load('board.jpg');
 const boardGeometry = new THREE.BoxGeometry(8, 0.2, 8);
 const boardMaterial = new THREE.MeshPhongMaterial({ map: boardTexture });
 const boardMesh = new THREE.Mesh(boardGeometry, boardMaterial);
 scene.add(boardMesh);
 
-// Create chess pieces
-const pieceModels = {
-    'pawn': 'https://raw.githubusercontent.com/thecodemodule/3DChessGame/main/models/pawn.glb',
-    'rook': 'https://raw.githubusercontent.com/thecodemodule/3DChessGame/main/models/rook.glb',
-    'knight': 'https://raw.githubusercontent.com/thecodemodule/3DChessGame/main/models/knight.glb',
-    'bishop': 'https://raw.githubusercontent.com/thecodemodule/3DChessGame/main/models/bishop.glb',
-    'queen': 'https://raw.githubusercontent.com/thecodemodule/3DChessGame/main/models/queen.glb',
-    'king': 'https://raw.githubusercontent.com/thecodemodule/3DChessGame/main/models/king.glb'
-};
-
-function createPiece(type, color, x, z) {
-    return new Promise((resolve) => {
-        loader.load(pieceModels[type], (gltf) => {
-            const model = gltf.scene;
-            model.scale.set(0.5, 0.5, 0.5);
-            model.position.set(x - 3.5, 0.1, z - 3.5);
-            model.traverse((child) => {
-                if (child.isMesh) {
-                    child.material.color.setHex(color === 'white' ? 0xFFFFFF : 0x333333);
-                }
-            });
-            model.userData = { type, color };
-            scene.add(model);
-            pieces.push(model);
-            resolve(model);
-        });
-    });
+// Create checkers pieces
+function createPiece(color, x, z) {
+    const geometry = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 32);
+    const material = new THREE.MeshPhongMaterial({ color: color === 'white' ? 0xFFFFFF : 0x333333 });
+    const piece = new THREE.Mesh(geometry, material);
+    piece.position.set(x - 3.5, 0.1, z - 3.5);
+    piece.userData = { color, isKing: false };
+    scene.add(piece);
+    pieces.push(piece);
+    return piece;
 }
 
-// Initial piece setup
-const initialSetup = [
-    { type: 'rook', positions: [[0, 0], [7, 0], [0, 7], [7, 7]] },
-    { type: 'knight', positions: [[1, 0], [6, 0], [1, 7], [6, 7]] },
-    { type: 'bishop', positions: [[2, 0], [5, 0], [2, 7], [5, 7]] },
-    { type: 'queen', positions: [[3, 0], [3, 7]] },
-    { type: 'king', positions: [[4, 0], [4, 7]] },
-    { type: 'pawn', positions: [[0, 1], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6]] }
-];
-
-async function setupBoard() {
-    for (const { type, positions } of initialSetup) {
-        for (const [x, z] of positions) {
-            await createPiece(type, z <= 1 ? 'white' : 'black', x, z);
+// Initial piece setup for checkers
+function setupBoard() {
+    for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            if ((row + col) % 2 === 1) {
+                if (row < 3) {
+                    createPiece('black', col, row);
+                } else if (row > 4) {
+                    createPiece('white', col, row);
+                }
+            }
         }
     }
 }
-
-setupBoard();
 
 // Raycaster for piece selection
 const raycaster = new THREE.Raycaster();
@@ -99,25 +79,19 @@ function onMouseMove(event) {
 }
 
 function onMouseClick() {
+    if (gameMode === 'solo' && currentTurn === 'black') return; // Prevent clicking during computer's turn
+
     raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(pieces, true);
+    const intersects = raycaster.intersectObjects(pieces);
 
     if (intersects.length > 0) {
-        const clickedPiece = intersects[0].object.parent;
+        const clickedPiece = intersects[0].object;
         if (clickedPiece.userData.color === currentTurn) {
             if (selectedPiece) {
-                selectedPiece.traverse((child) => {
-                    if (child.isMesh) {
-                        child.material.emissive.setHex(0x000000);
-                    }
-                });
+                selectedPiece.material.emissive.setHex(0x000000);
             }
             selectedPiece = clickedPiece;
-            selectedPiece.traverse((child) => {
-                if (child.isMesh) {
-                    child.material.emissive.setHex(0x00ff00);
-                }
-            });
+            selectedPiece.material.emissive.setHex(0x00ff00);
         } else if (selectedPiece) {
             movePiece(selectedPiece, clickedPiece.position);
         }
@@ -135,12 +109,8 @@ function movePiece(piece, targetPosition) {
     const toX = Math.round(targetPosition.x + 3.5);
     const toZ = Math.round(targetPosition.z + 3.5);
 
-    if (isValidMove(piece.userData.type, piece.userData.color, fromX, fromZ, toX, toZ)) {
-        const capturedPiece = pieces.find(p => 
-            Math.round(p.position.x + 3.5) === toX && 
-            Math.round(p.position.z + 3.5) === toZ && 
-            p.userData.color !== piece.userData.color
-        );
+    if (isValidMove(piece.userData.color, fromX, fromZ, toX, toZ)) {
+        const capturedPiece = getCapturedPiece(fromX, fromZ, toX, toZ);
 
         if (capturedPiece) {
             capturePiece(capturedPiece);
@@ -158,13 +128,18 @@ function movePiece(piece, targetPosition) {
                     duration: 0.2,
                     ease: "bounce.out",
                     onComplete: () => {
-                        piece.traverse((child) => {
-                            if (child.isMesh) {
-                                child.material.emissive.setHex(0x000000);
-                            }
-                        });
+                        piece.material.emissive.setHex(0x000000);
                         selectedPiece = null;
-                        switchTurn();
+                        if (shouldBecomeKing(piece)) {
+                            makeKing(piece);
+                        }
+                        if (!canJumpAgain(piece)) {
+                            switchTurn();
+                            if (gameMode === 'solo' && currentTurn === 'black') {
+                                setTimeout(computerMove, 1000);
+                            }
+                        }
+                        checkForWinner();
                     }
                 });
             }
@@ -172,30 +147,33 @@ function movePiece(piece, targetPosition) {
     }
 }
 
-function isValidMove(pieceType, pieceColor, fromX, fromZ, toX, toZ) {
-    const dx = Math.abs(toX - fromX);
-    const dz = Math.abs(toZ - fromZ);
+function isValidMove(pieceColor, fromX, fromZ, toX, toZ) {
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const direction = pieceColor === 'white' ? -1 : 1;
 
-    switch (pieceType) {
-        case 'pawn':
-            if (pieceColor === 'white') {
-                return (toZ === fromZ + 1 && dx === 0) || (fromZ === 1 && toZ === 3 && dx === 0);
-            } else {
-                return (toZ === fromZ - 1 && dx === 0) || (fromZ === 6 && toZ === 4 && dx === 0);
-            }
-        case 'rook':
-            return dx === 0 || dz === 0;
-        case 'knight':
-            return (dx === 1 && dz === 2) || (dx === 2 && dz === 1);
-        case 'bishop':
-            return dx === dz;
-        case 'queen':
-            return dx === 0 || dz === 0 || dx === dz;
-        case 'king':
-            return dx <= 1 && dz <= 1;
-        default:
-            return false;
+    // Regular move
+    if (Math.abs(dx) === 1 && dz === direction) {
+        return !getPieceAt(toX, toZ);
     }
+
+    // Capture move
+    if (Math.abs(dx) === 2 && dz === 2 * direction) {
+        const capturedPiece = getCapturedPiece(fromX, fromZ, toX, toZ);
+        return capturedPiece && capturedPiece.userData.color !== pieceColor && !getPieceAt(toX, toZ);
+    }
+
+    return false;
+}
+
+function getCapturedPiece(fromX, fromZ, toX, toZ) {
+    const midX = (fromX + toX) / 2;
+    const midZ = (fromZ + toZ) / 2;
+    return getPieceAt(midX, midZ);
+}
+
+function getPieceAt(x, z) {
+    return pieces.find(p => Math.round(p.position.x + 3.5) === x && Math.round(p.position.z + 3.5) === z);
 }
 
 function capturePiece(piece) {
@@ -210,20 +188,178 @@ function capturePiece(piece) {
     });
 }
 
+function shouldBecomeKing(piece) {
+    const z = Math.round(piece.position.z + 3.5);
+    return (piece.userData.color === 'white' && z === 0) || (piece.userData.color === 'black' && z === 7);
+}
+
+function makeKing(piece) {
+    piece.userData.isKing = true;
+    const crown = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.2, 0.1, 32),
+        new THREE.MeshPhongMaterial({ color: 0xFFD700 })
+    );
+    crown.position.y = 0.15;
+    piece.add(crown);
+}
+
+function canJumpAgain(piece) {
+    const x = Math.round(piece.position.x + 3.5);
+    const z = Math.round(piece.position.z + 3.5);
+    const directions = piece.userData.isKing ? [-1, 1] : [piece.userData.color === 'white' ? -1 : 1];
+
+    for (const dz of directions) {
+        for (const dx of [-1, 1]) {
+            if (isValidMove(piece.userData.color, x, z, x + 2 * dx, z + 2 * dz)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function switchTurn() {
     currentTurn = currentTurn === 'white' ? 'black' : 'white';
     turnIndicator.textContent = `${currentTurn.charAt(0).toUpperCase() + currentTurn.slice(1)}'s Turn`;
 }
 
-document.getElementById('reset-game').addEventListener('click', resetGame);
+function checkForWinner() {
+    const whitePieces = pieces.filter(p => p.userData.color === 'white');
+    const blackPieces = pieces.filter(p => p.userData.color === 'black');
 
-async function resetGame() {
+    if (whitePieces.length === 0 || blackPieces.length === 0) {
+        const winner = whitePieces.length === 0 ? 'Black' : 'White';
+        winnerDisplay.textContent = `${winner} wins!`;
+        winnerDisplay.style.display = 'block';
+        celebrateWin(winner);
+    }
+}
+
+function celebrateWin(winner) {
+    // Create and animate confetti
+    for (let i = 0; i < 100; i++) {
+        const confetti = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.1, 0.1),
+            new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff })
+        );
+        confetti.position.set(
+            Math.random() * 8 - 4,
+            10,
+            Math.random() * 8 - 4
+        );
+        scene.add(confetti);
+
+        gsap.to(confetti.position, {
+            y: -5,
+            duration: 2 + Math.random() * 2,
+            ease: "power1.out",
+            onComplete: () => scene.remove(confetti)
+        });
+    }
+
+    // Zoom and rotate camera
+    gsap.to(camera.position, {
+        x: 5,
+        y: 15,
+        z: 5,
+        duration: 2,
+        ease: "power2.inOut"
+    });
+    gsap.to(camera.rotation, {
+        x: -Math.PI / 4,
+        y: Math.PI / 4,
+        z: 0,
+        duration: 2,
+        ease: "power2.inOut"
+    });
+}
+
+function computerMove() {
+    const blackPieces = pieces.filter(p => p.userData.color === 'black');
+    let bestMove = null;
+    let bestScore = -Infinity;
+
+    for (const piece of blackPieces) {
+        const x = Math.round(piece.position.x + 3.5);
+        const z = Math.round(piece.position.z + 3.5);
+
+        for (const dz of [-1, 1]) {
+            for (const dx of [-1, 1]) {
+                if (isValidMove('black', x, z, x + dx, z + dz)) {
+                    const score = evaluateMove(x, z, x + dx, z + dz);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = { piece, toX: x + dx, toZ: z + dz };
+                    }
+                }
+                if (isValidMove('black', x, z, x + 2 * dx, z + 2 * dz)) {
+                    const score = evaluateMove(x, z, x + 2 * dx, z + 2 * dz);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = { piece, toX: x + 2 * dx, toZ: z + 2 * dz };
+                    }
+                }
+            }
+        }
+    }
+
+    if (bestMove) {
+        movePiece(bestMove.piece, new THREE.Vector3(bestMove.toX - 3.5, 0.1, bestMove.toZ - 3.5));
+    }
+}
+
+function evaluateMove(fromX, fromZ, toX, toZ) {
+    let score = 0;
+
+    // Prefer captures
+    if (Math.abs(toX - fromX) === 2) {
+        score += 10;
+    }
+
+    // Prefer advancing
+    score += toZ;
+
+    // Prefer center control
+    score += 5 - Math.abs(toX - 3.5);
+
+    return score;
+}
+
+function resetGame() {
     pieces.forEach(piece => scene.remove(piece));
     pieces.length = 0;
-    await setupBoard();
+    setupBoard();
     currentTurn = 'white';
     turnIndicator.textContent = "White's Turn";
+    winnerDisplay.style.display = 'none';
+
+    // Reset camera position
+    gsap.to(camera.position, {
+        x: 0,
+        y: 10,
+        z: 10,
+        duration: 1,
+        ease: "power2.inOut"
+    });
+    gsap.to(camera.rotation, {
+        x: -Math.PI / 4,
+        y: 0,
+        z: 0,
+        duration: 1,
+        ease: "power2.inOut"
+    });
 }
+
+function startGame(mode) {
+    gameMode = mode;
+    gameModeSelector.style.display = 'none';
+    gameUI.style.display = 'block';
+    setupBoard();
+}
+
+document.getElementById('solo-btn').addEventListener('click', () => startGame('solo'));
+document.getElementById('multiplayer-btn').addEventListener('click', () => startGame('multiplayer'));
+document.getElementById('reset-game').addEventListener('click', resetGame);
 
 window.addEventListener('mousemove', onMouseMove);
 window.addEventListener('click', onMouseClick);
